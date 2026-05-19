@@ -79,6 +79,49 @@ def main(max_len: int) -> None:
             continue
         result[plain] = result.get(with_yo, with_yo)
 
+    # Pass 2: yoficator.dic augmentation — same logic as build_full.py.
+    # Covers ё-words and proper names that ruaccent's yo_words.json misses
+    # (e.g. Аксёнов, битьё). yoficator is conservative (no homographs), so
+    # overwriting existing entries is safe. Length cap still applies to the
+    # e-form key — if the no-ё spelling exceeds max_len we skip the pair.
+    yof_path = os.path.join(os.path.dirname(__file__) or ".", "yoficator.dic")
+    if os.path.exists(yof_path):
+        added = 0
+        overwritten = 0
+        no_stress = 0
+        with open(yof_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n").rstrip("\r")
+                if not line or ":" not in line:
+                    continue
+                e_form, yo_form = line.split(":", 1)
+                if not e_form or not yo_form:
+                    continue
+                if len(e_form) > max_len:
+                    continue
+                stressed = result.get(yo_form)
+                if stressed is None:
+                    raw = accents.get(yo_form)
+                    if raw is None or "+" not in raw:
+                        no_stress += 1
+                        continue
+                    if yo_form in omographs:
+                        # Lite skips homographs entirely (see above), so don't
+                        # augment from a homograph either — mirrors the
+                        # "no_homographs" stance of the rest of this build.
+                        continue
+                    stressed = convert(raw)
+                existing = result.get(e_form)
+                if existing is None:
+                    added += 1
+                elif existing != stressed:
+                    overwritten += 1
+                result[e_form] = stressed
+        print(f"  yoficator augmentation: +{added:,} new e-forms, "
+              f"{overwritten:,} overwritten, {no_stress:,} skipped (no stress)")
+    else:
+        print(f"  WARN: yoficator.dic not found at {yof_path}, skipping pass 2")
+
     out_name = "russian_accents.json" if max_len == 9 else "russian_accents_compact.json"
     out_path = os.path.join(os.path.dirname(__file__) or ".", out_name)
     with open(out_path, "w", encoding="utf-8") as f:
